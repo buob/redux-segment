@@ -19,7 +19,8 @@ function emit(type: string, fields: Array) {
 
 function createTracker(customOptions = {}) {
   const options = {
-    mapper: { ...defaultMapper.mapper, ...customOptions.mapper }
+    ...defaultMapper,
+    ...customOptions
   };
   return store => next => action => handleAction(store.getState.bind(store), next, action, options);
 }
@@ -36,28 +37,28 @@ function appendAction(action: Object, analytics: Object | Array) {
 
 function handleAction(getState: Function, next: Function, action: Object, options: Object) {
 
-  if (action.meta && action.meta.analytics) return handleSpec(next, action);
+  if (action.meta && action.meta.analytics) return handleSpec(next, action, options);
 
   if (typeof options.mapper[action.type] === 'function') {
 
     let analytics = options.mapper[action.type](getState, action);
-    return handleSpec(next, appendAction(action, analytics));
+    return handleSpec(next, appendAction(action, analytics), options);
   }
 
   if (typeof options.mapper[action.type] === 'string') {
 
     let analytics = {eventType: options.mapper[action.type]};
-    return handleSpec(next, appendAction(action, analytics));
+    return handleSpec(next, appendAction(action, analytics), options);
   }
 
   return next(action);
 }
 
-function getFields(type: string, fields: Object, actionType: string) {
+function getFields(type: string, fields: Object, actionType: string, options: Object) {
   const typeFieldHandlers = {
     [EventTypes.identify]: extractIdentifyFields,
     [EventTypes.page]: extractPageFields,
-    [EventTypes.track]: eventFields => extractTrackFields(eventFields, actionType),
+    [EventTypes.track]: eventFields => extractTrackFields(eventFields, actionType, options),
     [EventTypes.alias]: extractAliasFields,
     [EventTypes.group]: extractGroupFields,
     [EventTypes.reset]: () => [],
@@ -74,12 +75,12 @@ function getEventType(spec) {
   return spec.eventType;
 }
 
-function handleIndividualSpec(spec: string | Object, action: Object) {
+function handleIndividualSpec(spec: string | Object, action: Object, options: Object) {
   const type = getEventType(spec);
 
   // In case the eventType was not specified or set to `null`, ignore this individual spec.
   if (type && type.length) {
-    const fields = getFields(type, spec.eventPayload || {}, action.type);
+    const fields = getFields(type, options.sendActionPayload ? { properties: { payload: action.payload } } : spec.eventPayload || {}, action.type, options);
 
     if (fields instanceof Error) return warn(fields);
 
@@ -87,13 +88,13 @@ function handleIndividualSpec(spec: string | Object, action: Object) {
   }
 }
 
-function handleSpec(next: Function, action: Object) {
+function handleSpec(next: Function, action: Object, options: Object) {
   const spec = action.meta.analytics;
 
   if (Array.isArray(spec)) {
-    spec.forEach(s => handleIndividualSpec(s, action));
+    spec.forEach(s => handleIndividualSpec(s, action, options));
   } else {
-    handleIndividualSpec(spec, action);
+    handleIndividualSpec(spec, action, options);
   }
 
   return next(action);
